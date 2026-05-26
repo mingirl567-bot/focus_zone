@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FocusZone — 시험기간 나만의 집중력 타이머</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --focus-primary: #7c3aed;
+    --focus-secondary: #06b6d4;
+    --focus-glow: rgba(124, 58, 237, 0.6);
+    --break-primary: #10b981;
+    --break-secondary: #34d399;
+    --break-glow: rgba(16, 185, 129, 0.6);
+    --bg-base: #050510;
+    --bg-surface: rgba(255,255,255,0.03);
+    --ring-size: 260px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background-color: var(--bg-base);
+    font-family: 'Noto Sans KR', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    color: #e2e8f0;
+    transition: background 1s ease;
+    position: relative;
+  }
+
+  /* ─── Background Grid ─── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(124,58,237,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124,58,237,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 1s ease;
+  }
+
+  /* ─── Ambient glow overlay ─── */
+  #ambient-overlay {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    transition: background 1.5s ease, opacity 1.5s ease;
+  }
+
+  /* ─── Rain effect ─── */
+  #rain-canvas {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    transition: opacity 1s ease;
+  }
+  #rain-canvas.active { opacity: 0.55; }
+
+  /* ─── Fire Glow (campfire) ─── */
+  #fire-overlay {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    background: radial-gradient(ellipse at 50% 110%, rgba(251,146,60,0.18) 0%, rgba(239,68,68,0.08) 40%, transparent 70%);
+    transition: opacity 1.5s ease;
+  }
+  #fire-overlay.active { opacity: 1; }
+
+  /* ─── Cafe Particles ─── */
+  .cafe-particle {
+    position: fixed;
+    border-radius: 50%;
+    background: rgba(251,191,36,0.12);
+    pointer-events: none;
+    z-index: 1;
+    animation: floatUp linear infinite;
+    opacity: 0;
+  }
+  .cafe-particle.active { opacity: 1; }
+  @keyframes floatUp {
+    0% { transform: translateY(100vh) scale(0.5); opacity: 0.6; }
+    100% { transform: translateY(-10vh) scale(1.2); opacity: 0; }
+  }
+
+  /* ─── Main Layout ─── */
+  .main-wrapper {
+    position: relative;
+    z-index: 10;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem 4rem;
+  }
+
+  /* ─── Header ─── */
+  .logo-text {
+    font-family: 'Orbitron', monospace;
+    font-size: 1.5rem;
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    background: linear-gradient(135deg, var(--focus-secondary), var(--focus-primary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    filter: drop-shadow(0 0 12px var(--focus-glow));
+    transition: filter 1s ease;
+  }
+  .logo-sub {
+    font-size: 0.7rem;
+    letter-spacing: 0.3em;
+    color: rgba(255,255,255,0.3);
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* ─── Mode Tabs ─── */
+  .mode-tabs {
+    display: flex;
+    gap: 4px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    padding: 4px;
+    backdrop-filter: blur(12px);
+    margin: 2rem 0 1rem;
+  }
+  .tab-btn {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 8px 24px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.4);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .tab-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    border-radius: 999px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .tab-btn.active {
+    color: #fff;
+    background: linear-gradient(135deg, var(--focus-primary), var(--focus-secondary));
+    box-shadow: 0 0 20px var(--focus-glow);
+  }
+  .tab-btn.active.break-mode {
+    background: linear-gradient(135deg, #059669, #34d399);
+    box-shadow: 0 0 20px var(--break-glow);
+  }
+
+  /* ─── Session Counter ─── */
+  .session-dots {
+    display: flex; gap: 6px; align-items: center;
+    margin-bottom: 2rem;
+  }
+  .session-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.2);
+    transition: all 0.4s ease;
+  }
+  .session-dot.filled {
+    background: var(--focus-primary);
+    box-shadow: 0 0 8px var(--focus-glow);
+  }
+
+  /* ─── Timer Ring ─── */
+  .timer-container {
+    position: relative;
+    width: var(--ring-size);
+    height: var(--ring-size);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 2.5rem;
+  }
+
+  .ring-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    transform: rotate(-90deg);
+  }
+
+  .ring-track {
+    fill: none;
+    stroke: rgba(255,255,255,0.05);
+    stroke-width: 6;
+  }
+
+  .ring-progress {
+    fill: none;
+    stroke: url(#progressGradient);
+    stroke-width: 6;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    filter: drop-shadow(0 0 8px var(--focus-primary));
+  }
+
+  .ring-inner {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+  }
+
+  .timer-digits {
+    font-family: 'Orbitron', monospace;
+    font-size: 3.8rem;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    color: #fff;
+    line-height: 1;
+    text-shadow: 0 0 30px var(--focus-glow), 0 0 60px rgba(124,58,237,0.3);
+    transition: text-shadow 1s ease;
+  }
+  .timer-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    margin-top: 6px;
+  }
+
+  /* Pulse ring when running */
+  .pulse-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid var(--focus-primary);
+    width: 100%; height: 100%;
+    opacity: 0;
+    animation: none;
+  }
+  .timer-running .pulse-ring {
+    animation: pulseExpand 2s ease-out infinite;
+  }
+  @keyframes pulseExpand {
+    0% { transform: scale(1); opacity: 0.5; }
+    100% { transform: scale(1.15); opacity: 0; }
+  }
+
+  /* ─── Control Buttons ─── */
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 3.5rem;
+  }
+
+  .ctrl-btn {
+    font-family: 'Orbitron', monospace;
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .ctrl-btn::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: rgba(255,255,255,0.1);
+    opacity: 0;
+    transition: opacity 0.15s;
+    border-radius: inherit;
+  }
+  .ctrl-btn:active::after { opacity: 1; }
+
+  .btn-start {
+    padding: 14px 40px;
+    background: linear-gradient(135deg, var(--focus-primary), var(--focus-secondary));
+    color: #fff;
+    box-shadow: 0 0 24px var(--focus-glow), 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .btn-start:hover { transform: translateY(-2px); box-shadow: 0 0 40px var(--focus-glow), 0 8px 30px rgba(0,0,0,0.5); }
+
+  .btn-secondary {
+    padding: 14px 24px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.6);
+    backdrop-filter: blur(8px);
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.1); color: #fff; transform: translateY(-1px); }
+
+  /* ─── Divider ─── */
+  .section-divider {
+    width: 100%;
+    max-width: 480px;
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 2rem;
+    position: relative;
+  }
+  .section-divider::before {
+    content: '◈ WHITE NOISE MIXER ◈';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    background: var(--bg-base);
+    padding: 0 12px;
+    font-family: 'Orbitron', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
+    color: rgba(255,255,255,0.2);
+    white-space: nowrap;
+  }
+
+  /* ─── Sound Buttons ─── */
+  .sound-grid {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .sound-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 28px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    min-width: 110px;
+    backdrop-filter: blur(10px);
+    position: relative;
+    overflow: hidden;
+  }
+  .sound-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, transparent, rgba(255,255,255,0.03));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .sound-btn:hover { border-color: rgba(255,255,255,0.2); transform: translateY(-3px); }
+  .sound-btn:hover::before { opacity: 1; }
+
+  .sound-icon {
+    font-size: 2rem;
+    line-height: 1;
+    transition: transform 0.3s ease, filter 0.3s ease;
+  }
+  .sound-btn:hover .sound-icon { transform: scale(1.15); }
+
+  .sound-name {
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.45);
+    text-transform: uppercase;
+    font-weight: 500;
+    transition: color 0.3s;
+  }
+
+  .sound-status {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    color: rgba(255,255,255,0.2);
+    transition: all 0.3s;
+  }
+
+  /* Active states per sound */
+  .sound-btn.rain-active {
+    border-color: rgba(56,189,248,0.6);
+    background: rgba(56,189,248,0.08);
+    box-shadow: 0 0 24px rgba(56,189,248,0.2), inset 0 0 20px rgba(56,189,248,0.05);
+  }
+  .sound-btn.rain-active .sound-status { color: #38bdf8; text-shadow: 0 0 8px rgba(56,189,248,0.8); }
+  .sound-btn.rain-active .sound-name { color: #7dd3fc; }
+
+  .sound-btn.cafe-active {
+    border-color: rgba(251,191,36,0.6);
+    background: rgba(251,191,36,0.08);
+    box-shadow: 0 0 24px rgba(251,191,36,0.2), inset 0 0 20px rgba(251,191,36,0.05);
+  }
+  .sound-btn.cafe-active .sound-status { color: #fbbf24; text-shadow: 0 0 8px rgba(251,191,36,0.8); }
+  .sound-btn.cafe-active .sound-name { color: #fcd34d; }
+
+  .sound-btn.fire-active {
+    border-color: rgba(251,146,60,0.6);
+    background: rgba(251,146,60,0.08);
+    box-shadow: 0 0 24px rgba(251,146,60,0.2), inset 0 0 20px rgba(251,146,60,0.05);
+  }
+  .sound-btn.fire-active .sound-status { color: #fb923c; text-shadow: 0 0 8px rgba(251,146,60,0.8); }
+  .sound-btn.fire-active .sound-name { color: #fdba74; }
+
+  /* Playing animation on icon */
+  .sound-btn.playing .sound-icon {
+    animation: soundPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes soundPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); filter: drop-shadow(0 0 8px currentColor); }
+  }
+
+  /* ─── Volume bar (decorative) ─── */
+  .vol-bars {
+    display: flex; gap: 2px; align-items: flex-end; height: 14px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .sound-btn.playing .vol-bars { opacity: 1; }
+  .vol-bar {
+    width: 3px; border-radius: 2px;
+    background: currentColor;
+    animation: none;
+  }
+  .sound-btn.rain-active .vol-bar { background: #38bdf8; }
+  .sound-btn.cafe-active .vol-bar { background: #fbbf24; }
+  .sound-btn.fire-active .vol-bar { background: #fb923c; }
+  .sound-btn.playing .vol-bar { animation: barBounce 0.8s ease-in-out infinite; }
+  .vol-bar:nth-child(1) { height: 5px; animation-delay: 0s; }
+  .vol-bar:nth-child(2) { height: 10px; animation-delay: 0.15s; }
+  .vol-bar:nth-child(3) { height: 7px; animation-delay: 0.3s; }
+  .vol-bar:nth-child(4) { height: 13px; animation-delay: 0.1s; }
+  .vol-bar:nth-child(5) { height: 4px; animation-delay: 0.25s; }
+  @keyframes barBounce {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1); }
+  }
+
+  /* ─── Status bar ─── */
+  .status-bar {
+    margin-top: 2.5rem;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 20px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 999px;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    color: rgba(255,255,255,0.25);
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    transition: all 0.5s;
+  }
+  .status-dot.live {
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    animation: blink 2s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ─── Break mode overrides ─── */
+  body.break-mode .logo-text {
+    background: linear-gradient(135deg, #34d399, #06b6d4);
+    -webkit-background-clip: text; background-clip: text;
+    filter: drop-shadow(0 0 12px var(--break-glow));
+  }
+  body.break-mode .timer-digits {
+    text-shadow: 0 0 30px var(--break-glow), 0 0 60px rgba(16,185,129,0.3);
+  }
+  body.break-mode .btn-start {
+    background: linear-gradient(135deg, #059669, #34d399);
+    box-shadow: 0 0 24px var(--break-glow), 0 4px 20px rgba(0,0,0,0.4);
+  }
+  body.break-mode .btn-start:hover {
+    box-shadow: 0 0 40px var(--break-glow), 0 8px 30px rgba(0,0,0,0.5);
+  }
+  body.break-mode .pulse-ring {
+    border-color: var(--break-primary);
+  }
+
+  /* ─── Notification toast ─── */
+  .toast {
+    position: fixed;
+    top: 24px; left: 50%; transform: translateX(-50%) translateY(-80px);
+    background: rgba(15,15,30,0.95);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 12px 24px;
+    font-family: 'Orbitron', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    color: #fff;
+    z-index: 9999;
+    backdrop-filter: blur(20px);
+    transition: transform 0.4s cubic-bezier(0.34,1.56,0.64,1);
+    pointer-events: none;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ─── Scrollbar ─── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- Ambient overlays -->
+<div id="ambient-overlay"></div>
+<canvas id="rain-canvas"></canvas>
+<div id="fire-overlay"></div>
+
+<!-- Cafe floating particles -->
+<div id="cafe-particles"></div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<div class="main-wrapper">
+
+  <!-- Header -->
+  <header class="flex flex-col items-center mb-2">
+    <div class="logo-text">FocusZone</div>
+    <div class="logo-sub">시험기간 나만의 집중력 타이머</div>
+  </header>
+
+  <!-- Mode Tabs -->
+  <div class="mode-tabs" role="tablist">
+    <button class="tab-btn active" id="tab-focus" onclick="switchMode('focus')" role="tab">⚡ 집중 25:00</button>
+    <button class="tab-btn" id="tab-break" onclick="switchMode('break')" role="tab">🌿 휴식 05:00</button>
+  </div>
+
+  <!-- Session Dots -->
+  <div class="session-dots" id="session-dots">
+    <span style="font-size:0.6rem;letter-spacing:0.15em;color:rgba(255,255,255,0.25);margin-right:6px;font-family:'Orbitron',monospace;">SESSION</span>
+    <div class="session-dot" id="dot-1"></div>
+    <div class="session-dot" id="dot-2"></div>
+    <div class="session-dot" id="dot-3"></div>
+    <div class="session-dot" id="dot-4"></div>
+  </div>
+
+  <!-- Timer Ring -->
+  <div class="timer-container" id="timer-container">
+    <div class="pulse-ring"></div>
+    <svg class="ring-svg" viewBox="0 0 260 260" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#7c3aed" id="grad-start"/>
+          <stop offset="100%" stop-color="#06b6d4" id="grad-end"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+          <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <circle class="ring-track" cx="130" cy="130" r="120"/>
+      <circle class="ring-progress" id="ring-progress" cx="130" cy="130" r="120"
+        stroke-dasharray="753.98"
+        stroke-dashoffset="0"
+        filter="url(#glow)"/>
+    </svg>
+    <div class="ring-inner">
+      <div class="timer-digits" id="timer-display">25:00</div>
+      <div class="timer-label" id="timer-mode-label">FOCUS MODE</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="ctrl-btn btn-secondary" onclick="resetTimer()" title="리셋">↺ Reset</button>
+    <button class="ctrl-btn btn-start" id="start-btn" onclick="toggleTimer()">▶ Start</button>
+    <button class="ctrl-btn btn-secondary" onclick="skipSession()" title="스킵">→ Skip</button>
+  </div>
+
+  <!-- Divider -->
+  <hr class="section-divider" style="width:100%;max-width:480px;">
+
+  <!-- Sound Mixer -->
+  <div class="sound-grid">
+
+    <!-- Rain -->
+    <button class="sound-btn" id="btn-rain" onclick="toggleSound('rain')">
+      <span class="sound-icon">🌧️</span>
+      <span class="sound-name">빗소리</span>
+      <div class="vol-bars">
+        <div class="vol-bar"></div><div class="vol-bar"></div>
+        <div class="vol-bar"></div><div class="vol-bar"></div><div class="vol-bar"></div>
+      </div>
+      <span class="sound-status" id="status-rain">OFF</span>
+    </button>
+
+    <!-- Cafe -->
+    <button class="sound-btn" id="btn-cafe" onclick="toggleSound('cafe')">
+      <span class="sound-icon">☕</span>
+      <span class="sound-name">카페 소리</span>
+      <div class="vol-bars">
+        <div class="vol-bar"></div><div class="vol-bar"></div>
+        <div class="vol-bar"></div><div class="vol-bar"></div><div class="vol-bar"></div>
+      </div>
+      <span class="sound-status" id="status-cafe">OFF</span>
+    </button>
+
+    <!-- Fire -->
+    <button class="sound-btn" id="btn-fire" onclick="toggleSound('fire')">
+      <span class="sound-icon">🔥</span>
+      <span class="sound-name">모닥불</span>
+      <div class="vol-bars">
+        <div class="vol-bar"></div><div class="vol-bar"></div>
+        <div class="vol-bar"></div><div class="vol-bar"></div><div class="vol-bar"></div>
+      </div>
+      <span class="sound-status" id="status-fire">OFF</span>
+    </button>
+
+  </div>
+
+  <!-- Status bar -->
+  <div class="status-bar" style="margin-top:2.5rem;">
+    <div class="status-dot" id="live-dot"></div>
+    <span id="status-text">타이머 대기 중 — 시작 버튼을 눌러 집중하세요</span>
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+let mode = 'focus';           // 'focus' | 'break'
+let isRunning = false;
+let intervalId = null;
+let totalSeconds = 25 * 60;
+let remainingSeconds = totalSeconds;
+let sessionCount = 0;
+let completedSessions = 0;
+
+const sounds = { rain: false, cafe: false, fire: false };
+let cafeParticleIntervals = [];
+
+// SVG ring circumference: 2 * π * 120 ≈ 753.98
+const CIRCUMFERENCE = 2 * Math.PI * 120;
+
+// ══════════════════════════════════════════
+// TIMER CORE
+// ══════════════════════════════════════════
+function toggleTimer() {
+  isRunning ? pauseTimer() : startTimer();
+}
+
+function startTimer() {
+  isRunning = true;
+  document.getElementById('start-btn').textContent = '⏸ Pause';
+  document.getElementById('timer-container').classList.add('timer-running');
+  document.getElementById('live-dot').classList.add('live');
+  updateStatus(mode === 'focus' ? '⚡ 집중 세션 진행 중...' : '🌿 휴식 중... 잠시 쉬어가세요');
+
+  intervalId = setInterval(() => {
+    if (remainingSeconds <= 0) {
+      clearInterval(intervalId);
+      onTimerComplete();
+      return;
+    }
+    remainingSeconds--;
+    updateDisplay();
+    updateRing();
+  }, 1000);
+}
+
+function pauseTimer() {
+  isRunning = false;
+  clearInterval(intervalId);
+  document.getElementById('start-btn').textContent = '▶ Start';
+  document.getElementById('timer-container').classList.remove('timer-running');
+  document.getElementById('live-dot').classList.remove('live');
+  updateStatus('일시 정지됨 — 언제든 다시 시작하세요');
+}
+
+function resetTimer() {
+  pauseTimer();
+  remainingSeconds = totalSeconds;
+  updateDisplay();
+  updateRing();
+  updateStatus('타이머 리셋됨');
+  showToast('🔄 타이머가 초기화되었습니다');
+}
+
+function skipSession() {
+  pauseTimer();
+  onTimerComplete(true);
+}
+
+function onTimerComplete(skipped = false) {
+  document.getElementById('timer-container').classList.remove('timer-running');
+  document.getElementById('live-dot').classList.remove('live');
+  document.getElementById('start-btn').textContent = '▶ Start';
+
+  if (mode === 'focus' && !skipped) {
+    completedSessions++;
+    updateSessionDots();
+    showToast('🎉 집중 세션 완료! 잠깐 휴식하세요');
+  }
+
+  // Auto switch mode
+  const nextMode = mode === 'focus' ? 'break' : 'focus';
+  setTimeout(() => switchMode(nextMode), 600);
+}
+
+// ══════════════════════════════════════════
+// DISPLAY
+// ══════════════════════════════════════════
+function updateDisplay() {
+  const m = Math.floor(remainingSeconds / 60).toString().padStart(2, '0');
+  const s = (remainingSeconds % 60).toString().padStart(2, '0');
+  document.getElementById('timer-display').textContent = `${m}:${s}`;
+}
+
+function updateRing() {
+  const progress = remainingSeconds / totalSeconds;
+  const offset = CIRCUMFERENCE * (1 - progress);
+  document.getElementById('ring-progress').style.strokeDashoffset = offset;
+}
+
+function updateSessionDots() {
+  for (let i = 1; i <= 4; i++) {
+    const dot = document.getElementById(`dot-${i}`);
+    dot.classList.toggle('filled', i <= completedSessions % 4 || (completedSessions >= 4 && completedSessions % 4 === 0 && i <= 4));
+  }
+}
+
+function updateStatus(msg) {
+  document.getElementById('status-text').textContent = msg;
+}
+
+// ══════════════════════════════════════════
+// MODE SWITCH
+// ══════════════════════════════════════════
+function switchMode(newMode) {
+  if (isRunning) pauseTimer();
+  mode = newMode;
+
+  const isFocus = mode === 'focus';
+  totalSeconds = isFocus ? 25 * 60 : 5 * 60;
+  remainingSeconds = totalSeconds;
+
+  // Tab UI
+  document.getElementById('tab-focus').classList.toggle('active', isFocus);
+  document.getElementById('tab-break').classList.toggle('active', !isFocus);
+  document.getElementById('tab-break').classList.toggle('break-mode', !isFocus);
+
+  // Body class
+  document.body.classList.toggle('break-mode', !isFocus);
+
+  // Label
+  document.getElementById('timer-mode-label').textContent = isFocus ? 'FOCUS MODE' : 'BREAK MODE';
+
+  // Gradient colors
+  const gs = document.getElementById('grad-start');
+  const ge = document.getElementById('grad-end');
+  if (isFocus) {
+    gs.setAttribute('stop-color', '#7c3aed');
+    ge.setAttribute('stop-color', '#06b6d4');
+  } else {
+    gs.setAttribute('stop-color', '#059669');
+    ge.setAttribute('stop-color', '#34d399');
+  }
+
+  // Ambient overlay
+  const overlay = document.getElementById('ambient-overlay');
+  if (isFocus) {
+    overlay.style.background = 'radial-gradient(ellipse at 30% 20%, rgba(124,58,237,0.12) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(6,182,212,0.08) 0%, transparent 60%)';
+  } else {
+    overlay.style.background = 'radial-gradient(ellipse at 50% 30%, rgba(16,185,129,0.12) 0%, transparent 60%), radial-gradient(ellipse at 30% 70%, rgba(52,211,153,0.07) 0%, transparent 60%)';
+  }
+
+  updateDisplay();
+  updateRing();
+  updateStatus(isFocus ? '⚡ 집중 모드 — 25분 집중!' : '🌿 휴식 모드 — 5분 충전!');
+  showToast(isFocus ? '⚡ 집중 모드 시작' : '🌿 휴식 시간입니다');
+}
+
+// ══════════════════════════════════════════
+// SOUND MIXER
+// ══════════════════════════════════════════
+function toggleSound(name) {
+  sounds[name] = !sounds[name];
+  const on = sounds[name];
+
+  const btn = document.getElementById(`btn-${name}`);
+  const status = document.getElementById(`status-${name}`);
+
+  btn.classList.toggle(`${name}-active`, on);
+  btn.classList.toggle('playing', on);
+  status.textContent = on ? 'PLAYING' : 'OFF';
+
+  if (name === 'rain') applyRainEffect(on);
+  if (name === 'cafe') applyCafeEffect(on);
+  if (name === 'fire') applyFireEffect(on);
+
+  updateStatus(on
+    ? `🎵 ${name === 'rain' ? '빗소리' : name === 'cafe' ? '카페 소리' : '모닥불 소리'} 재생 중`
+    : `⏹ ${name === 'rain' ? '빗소리' : name === 'cafe' ? '카페 소리' : '모닥불 소리'} 정지됨`
+  );
+  showToast(on
+    ? `${name === 'rain' ? '🌧️ 빗소리' : name === 'cafe' ? '☕ 카페 소리' : '🔥 모닥불 소리'} 켜짐`
+    : `${name === 'rain' ? '🌧️ 빗소리' : name === 'cafe' ? '☕ 카페 소리' : '🔥 모닥불 소리'} 꺼짐`
+  );
+}
+
+// ── Rain ──────────────────────────────────
+let rainCtx = null, rainAnim = null, drops = [];
+
+function applyRainEffect(on) {
+  const canvas = document.getElementById('rain-canvas');
+  canvas.classList.toggle('active', on);
+
+  if (on) {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    rainCtx = canvas.getContext('2d');
+    drops = Array.from({length: 130}, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      len: Math.random() * 18 + 8,
+      speed: Math.random() * 4 + 3,
+      opacity: Math.random() * 0.5 + 0.15,
+      width: Math.random() * 1.2 + 0.3,
+    }));
+    animateRain();
+  } else {
+    cancelAnimationFrame(rainAnim);
+    if (rainCtx) rainCtx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+function animateRain() {
+  if (!sounds.rain) return;
+  const canvas = document.getElementById('rain-canvas');
+  rainCtx.clearRect(0, 0, canvas.width, canvas.height);
+  rainCtx.strokeStyle = '#a5f3fc';
+
+  drops.forEach(d => {
+    rainCtx.globalAlpha = d.opacity;
+    rainCtx.lineWidth = d.width;
+    rainCtx.beginPath();
+    rainCtx.moveTo(d.x, d.y);
+    rainCtx.lineTo(d.x - 1, d.y + d.len);
+    rainCtx.stroke();
+    d.y += d.speed;
+    d.x -= 0.5;
+    if (d.y > canvas.height) { d.y = -d.len; d.x = Math.random() * canvas.width; }
+  });
+  rainCtx.globalAlpha = 1;
+  rainAnim = requestAnimationFrame(animateRain);
+}
+
+window.addEventListener('resize', () => {
+  if (sounds.rain) {
+    const c = document.getElementById('rain-canvas');
+    c.width = window.innerWidth; c.height = window.innerHeight;
+  }
+});
+
+// ── Cafe ──────────────────────────────────
+function applyCafeEffect(on) {
+  const container = document.getElementById('cafe-particles');
+  container.innerHTML = '';
+  cafeParticleIntervals.forEach(clearInterval);
+  cafeParticleIntervals = [];
+
+  if (on) {
+    const spawnParticle = () => {
+      const el = document.createElement('div');
+      el.className = 'cafe-particle active';
+      const size = Math.random() * 40 + 10;
+      el.style.cssText = `
+        width:${size}px; height:${size}px;
+        left:${Math.random()*100}vw;
+        bottom: -60px;
+        animation-duration: ${Math.random()*8+6}s;
+        animation-delay: ${Math.random()*2}s;
+        opacity: 0;
+      `;
+      container.appendChild(el);
+      setTimeout(() => el.remove(), 12000);
+    };
+    for (let i = 0; i < 8; i++) spawnParticle();
+    const id = setInterval(() => { if(sounds.cafe) spawnParticle(); }, 1000);
+    cafeParticleIntervals.push(id);
+  }
+}
+
+// ── Fire ──────────────────────────────────
+function applyFireEffect(on) {
+  document.getElementById('fire-overlay').classList.toggle('active', on);
+}
+
+// ══════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════
+let toastTimeout = null;
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+(function init() {
+  // Set initial ambient overlay
+  document.getElementById('ambient-overlay').style.background =
+    'radial-gradient(ellipse at 30% 20%, rgba(124,58,237,0.12) 0%, transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(6,182,212,0.08) 0%, transparent 60%)';
+
+  updateDisplay();
+  updateRing();
+
+  // Animate ring on load
+  setTimeout(() => {
+    document.getElementById('ring-progress').style.transition = 'stroke-dashoffset 1.2s cubic-bezier(0.4,0,0.2,1)';
+  }, 100);
+})();
+</script>
+</body>
+</html>
